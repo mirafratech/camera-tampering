@@ -11,6 +11,7 @@ from tensorflow.keras.optimizers import Adam,SGD,Adadelta
 from keras.applications.vgg16 import VGG16
 from keras.applications.mobilenet_v2 import MobileNetV2
 from keras.callbacks import ModelCheckpoint
+import tensorflow as tf
 import scipy
 import glob
 import os
@@ -54,7 +55,7 @@ class Training:
         # Transfer Learning using VGG-16 model
         if model_name == "VGG16":
             model = VGG16(include_top=False, weights='imagenet', input_shape=(self.img_size, self.img_size, 3))
-        else:
+        elif model_name == "MobileNetV2":
             model = MobileNetV2(include_top=False, weights='imagenet', input_shape=(self.img_size, self.img_size, 3))
 
         return model
@@ -75,6 +76,19 @@ class Training:
         model = Model(inputs=input1, outputs=output)
 
         return model
+
+    def Quantz(self, model):
+
+        print("Quantizing model to tflite float32")
+        try:
+            converter = tf.lite.TFLiteConverter.from_keras_model(model)
+            converter.experimental_new_converter = True
+            tflite_model = converter.convert()
+            open(f"{self.output_path}+ converted_model.tflite", "wb").write(tflite_model)
+
+            print(f"Successfully converted and saved in: {self.output_path}+ converted_model.tflite")
+        except Exception as e:
+            print(f"Quantization Failed!, Error:{e}")
 
     def training(self):
         # Model training will start
@@ -105,4 +119,5 @@ class Training:
         )
 
         print(f"Model is Trained as {self.output_path+'weights.best.trained.hdf5'} ")
+        self.Quantz(model)
 

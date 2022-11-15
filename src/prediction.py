@@ -3,59 +3,82 @@
 # Mirafra Technologies
 # Version : 1.0
 
-import tensorflow as tf
 import numpy as np
-from keras.models import load_model
-from src.training import Training
-import os
 import pandas as pd
+import cv2
+from src.cnn_prediction import CnnPredict
+from src.image_processing import ImageProcessing
 
 
 class Predict:
-    def __init__(self,  model_path, test_path, image_size):
 
-        self.predict_path = test_path  # Path of the batch of images to predict
-        self.model_path = model_path  # Model path
-        self.model = load_model(self.model_path)  # Loading Model
-        self.image_size = image_size   # Image size
+    def __init__(self, model_path,video_file):
+        self.cnn = CnnPredict(model_path)
+        self.video = video_file
+        self.img_proc = ImageProcessing()
 
-    def predict(self, image):
-
-        # Prediction for single image
-
-        image = tf.keras.preprocessing.image.load_img(image, target_size=(self.image_size,self.image_size))
-        input_arr = tf.keras.preprocessing.image.img_to_array(image)
-        input_arr = np.array([input_arr])  # Convert single image to a batch
-        input_arr = input_arr.astype('float32') / 255.
-        predictions = self.model.predict(input_arr)
-        predicted_class = np.argmax(predictions, axis=-1)
-        return predicted_class[0]  # Predicted class would be in 2D
-
-    def csv_file(self):
+    def csv_file(self,frame_num, pred_lst):
         # Saving a csv file for batch of predicted images
 
-        image_path = []
-        actual_class = []
-        pred_class = []
-
-        for main_fol in os.listdir(self.predict_path):  # In test path there will be 4 folders 0,1,2,3
-            for img_file in os.listdir(os.path.join(self.predict_path, main_fol)):  # Path for images
-
-                path = os.path.join(self.predict_path, main_fol, img_file)  # Creating image path to save in csv
-
-                image_path.append(path)  # Appending image path in list
-                actual_class.append(int(main_fol))  # Append True class 0,1,2,3 as they are in folder format
-
-                predicted_class = self.predict(path)  # Predicting the image
-
-                pred_class.append(int(predicted_class))  # Appending the predict result for that image
-
-        dict1 = {"Image_path": image_path, "Class": actual_class, "Pred_class": pred_class}
+        dict1 = {"Frame_num": frame_num, "Pred_class": pred_lst}
 
         df = pd.DataFrame(dict1)  # Creating a dataframe
         df.to_csv("files/camera_tampering.csv", index=False)  # Saving the dataframe in csv format
 
         print("Csv file created as 'files/camera_tempering.csv'")
+
+    def predict(self):
+        # Video Frame
+        cap = cv2.VideoCapture(self.video)
+        # Background Substraction method
+        fgbg = cv2.createBackgroundSubtractorMOG2(history=5000, varThreshold=16,
+                                                  detectShadows=False)  # generating a foreground mask
+        kernel = np.ones((5, 5), np.uint8)
+
+        pred_class = []
+        pred_lst = []
+        i = 0
+        frame_num = []
+
+        while True:
+            ret, frame = cap.read()  # reading all the frames
+            if ret:
+                pred = self.img_proc.image_processing(frame, kernel, fgbg)  # Here 3 = Moved , 0= NotMoved
+
+                if pred == 0:
+                    pred = self.cnn.cnn_arc(frame)
+
+                pred_class.append(pred)
+
+                if len(pred_class) > 70:  #Skip top 70 frames
+                    pred_class.pop(0)
+
+                if all(i > 0 for i in pred_class):
+                    # cv2.putText(frame, "Tamper: ", (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+                    print("Tampering Detected")
+                    if all(i == 3 for i in pred_class):
+                        pred = 3
+                        # cv2.putText(frame, "Moved", (200, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+                    elif all(i == 2 for i in pred_class):
+                        pred = 2
+                        # cv2.putText(frame, "Defocussed", (50, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+                    else:
+                        pred = 1
+                        # cv2.putText(frame, "Covered", (50, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
+                else:
+                    pred = 0
+                    # cv2.putText(frame, "Normal", (5, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
+
+                pred_lst.append(pred)
+                frame_num.append(i)
+                i+=1
+                if cv2.waitKey(30) & 0xff == ord('q'):  # To close the camera press q
+                    break
+            else:
+                break
+        self.csv_file(frame_num, pred_lst)
+
+
 
 
 
